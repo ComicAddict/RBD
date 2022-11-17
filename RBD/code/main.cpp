@@ -61,14 +61,6 @@ struct Vertex {
 	}
 };
 
-struct Spring {
-	int v1, v2;
-	float baselength;
-	float k;
-	float d;
-	glm::vec3 direction;
-};
-
 struct Edge {
 	int v1;
 	int v2;
@@ -93,8 +85,14 @@ struct CollResp2 {
 };
 
 struct State {
-	std::vector<glm::vec3> pos;
-	std::vector<glm::vec3> vel;
+	glm::vec3 pos;
+	glm::vec3 vel;
+	glm::vec3 rot;
+};
+
+struct Impulse {
+	glm::vec3 pos;
+	glm::vec3 dir;
 };
 
 struct Object {
@@ -106,7 +104,7 @@ struct Object {
 	std::vector<uint32_t> indices;
 	std::vector<Edge> edges;
 	std::vector<Face> faces;
-	std::vector<glm::vec3> forces;
+	std::vector<Impulse> impulses;
 	std::vector<float> masses;
 	bool dynamic;
 };
@@ -283,16 +281,13 @@ Object constructObj(std::string model_path, bool dynamic) {
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, obj.ebo);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, obj.indices.size() * sizeof(float), &obj.indices[0], GL_DYNAMIC_DRAW);
 	if (dynamic) {
+		obj.s.pos = glm::vec3(0.0f, 0.0f, 0.0f);
+		obj.s.vel = glm::vec3(0.0f, 0.0f, 0.0f);
 		for (int i = 0; i < obj.vertices.size(); i++) {
-			for (int j = i + 1; j < obj.vertices.size(); j++) {
-				glm::vec3 dist = obj.vertices[i].pos - obj.vertices[j].pos;
-				obj.springs.push_back({ i, j, glm::length(dist), 8.0f,0.1f, glm::normalize(dist) });
-			}
 			obj.masses.push_back(1.0f);
-			obj.forces.push_back(glm::vec3(0.0f, 0.0f, 0.0f));
-			obj.s.pos.push_back(obj.vertices[i].pos);
-			obj.s.vel.push_back(glm::linearRand(glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3(0.5f, 0.5f, 0.5f)));
+			obj.s.pos += obj.masses[i] * obj.vertices[i].pos;
 		}
+		obj.s.pos /= obj.vertices.size();
 	}
 
 	for (int i = 0; i < obj.indices.size() / 3; i++) {
@@ -326,28 +321,10 @@ void loadObjBufferData(Object& obj) {
 void findDerivativeState(State& der, State& s, std::vector<Object>& objects) {
 	for (size_t i = 0; i < objects.size(); i++) {
 		if (objects[i].dynamic) {
-			// calculate forces
-			for (size_t j = 0; j < objects[i].springs.size(); j++) {
-				glm::vec3 dist = s.pos[objects[i].springs[j].v1] - s.pos[objects[i].springs[j].v2];
-				glm::vec3 distnorm = glm::normalize(dist);
-				//printf("displacement amount of spring between %i and %i is %f\n", objects[i].springs[j].v1, objects[i].springs[j].v2, (glm::length(dist) - objects[i].springs[j].baselength));
-				glm::vec3 sf = objects[i].springs[j].k * (glm::length(dist) - objects[i].springs[j].baselength) * distnorm;
-				glm::vec3 df = objects[i].springs[j].d * (glm::dot(s.vel[objects[i].springs[j].v1] - s.vel[objects[i].springs[j].v2], distnorm)) * distnorm;
-				objects[i].forces[objects[i].springs[j].v1] -= sf + df;
-				objects[i].forces[objects[i].springs[j].v2] += sf + df;
-			}
-			//adding gravity
-			for (size_t j = 0; j < objects[i].vertices.size(); j++) {
-				objects[i].forces[j] += glm::vec3(0.0, 0.0, -1.0f) * objects[i].masses[j];
-			}
 			// calculate state derivative
 			der.pos = s.vel;
-			for (size_t j = 0; j < objects[i].vertices.size(); j++) {
-				glm::vec3 acc = objects[i].forces[j] / objects[i].masses[j];
-				//printf("acc of point %i is (%f, %f, %f)\n", j, acc.x, acc.y, acc.z);
-				der.vel.push_back(acc);
-				objects[i].forces[j] = glm::vec3(0.0f, 0.0f, 0.0f);
-			}
+			glm::vec3 acc = glm::vec3(0.0f, 0.0f, -1.0f);
+			der.vel = acc;
 		}
 	}
 }
@@ -361,23 +338,25 @@ void vertexFaceIntersection(std::vector<CollResp1>& resp, Object& obj1, Object& 
 		Vertex v = obj1.vertices[i];
 		for (int j = 0; j < obj2.faces.size(); j++) {
 			Face f = obj2.faces[j];
-			glm::vec3 p_prev = obj1.s.pos[i];
+			glm::vec3 p_prev = obj1.s.pos + obj1.vertices[i].pos;
 			glm::vec3 norm = glm::normalize(glm::cross(obj2.vertices[f.v1].pos - obj2.vertices[f.v2].pos, obj2.vertices[f.v2].pos - obj2.vertices[f.v3].pos));
 			float d = glm::dot(v.pos - obj2.vertices[f.v1].pos, norm);
 			obj1.s.pos[i] += change.pos[i] * deltaTimeFrame;
 			obj1.s.vel[i] += change.vel[i] * deltaTimeFrame;
 			float dn = glm::dot(v.pos - obj2.vertices[f.v1].pos, norm);
+			/*
 			if (signbit(d) != signbit(dn)) {
 				printf("coll level 1\n");
 				//collision may happened need to check projections
 				//for xy
 				glm::vec3 collP = p_prev + change.pos[i] * deltaTimeFrame * (abs(d) / (abs(d) + abs(dn)));
-				obj1.s.pos[i] = collP + norm * 0.01f;
+				obj1.s.pos = collP + norm * 0.01f;
 				glm::vec3 vn = glm::dot(obj1.s.vel[i], norm) * norm;
 
 				glm::vec3 vt = obj1.s.vel[i] - vn;
 				obj1.s.vel[i] = -vn + vt;
 				obj1.vertices[i].pos = obj1.s.pos[i];
+				*/
 				//float e1 = hpSign(glm::vec2(collP.y, collP.z), glm::vec2(obj2.vertices[f.v1].pos.y, obj2.vertices[f.v1].pos.z), glm::vec2(obj2.vertices[f.v2].pos.y, obj2.vertices[f.v2].pos.z));
 				//float e2 = hpSign(glm::vec2(collP.y, collP.z), glm::vec2(obj2.vertices[f.v2].pos.y, obj2.vertices[f.v2].pos.z), glm::vec2(obj2.vertices[f.v3].pos.y, obj2.vertices[f.v3].pos.z));
 				//float e3 = hpSign(glm::vec2(collP.y, collP.z), glm::vec2(obj2.vertices[f.v3].pos.y, obj2.vertices[f.v3].pos.z), glm::vec2(obj2.vertices[f.v1].pos.y, obj2.vertices[f.v1].pos.z));
@@ -388,7 +367,7 @@ void vertexFaceIntersection(std::vector<CollResp1>& resp, Object& obj1, Object& 
 
 
 				//}
-			}
+			//}
 		}
 	}
 	/*
@@ -523,36 +502,25 @@ int main() {
 			glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(objects[i].indices.size()), GL_UNSIGNED_INT, 0);
 		}
 		State change{};
-		change.pos.reserve(objects[0].s.pos.size());
-		change.vel.reserve(objects[0].s.pos.size());
 		for (size_t i = 0; i < objects.size(); i++) {
 			if (objects[i].dynamic) {
 				// calculate forces
 				State tempState{};
 				State k1{};
 				findDerivativeState(k1, objects[i].s, objects);
-				for (size_t j = 0; j < k1.pos.size(); j++) {
-					tempState.pos.push_back(objects[i].s.pos[j] + 0.5f * deltaTimeFrame * k1.pos[j]);
-					tempState.vel.push_back(objects[i].s.vel[j] + 0.5f * deltaTimeFrame * k1.vel[j]);
-				}
-				//printf("Sizes of k1 %i, %i", k1.pos.size(), k1.vel.size());
+				tempState.pos = objects[i].s.pos + 0.5f * deltaTimeFrame * k1.pos;
+				tempState.vel = objects[i].s.vel + 0.5f * deltaTimeFrame * k1.vel;
+				
 				State k2{};
 				findDerivativeState(k2, tempState, objects);
-
-				tempState.pos.clear();
-				tempState.vel.clear();
-				for (size_t j = 0; j < k1.pos.size(); j++) {
-					tempState.pos.push_back(objects[i].s.pos[j] + 0.5f * deltaTimeFrame * k2.pos[j]);
-					tempState.vel.push_back(objects[i].s.vel[j] + 0.5f * deltaTimeFrame * k2.vel[j]);
-				}
+				tempState.pos = objects[i].s.pos + 0.5f * deltaTimeFrame * k2.pos;
+				tempState.vel = objects[i].s.vel + 0.5f * deltaTimeFrame * k2.vel;
+				
 				State k3{};
 				findDerivativeState(k3, tempState, objects);
-				tempState.pos.clear();
-				tempState.vel.clear();
-				for (size_t j = 0; j < k1.pos.size(); j++) {
-					tempState.pos.push_back(objects[i].s.pos[j] + deltaTimeFrame * k3.pos[j]);
-					tempState.vel.push_back(objects[i].s.vel[j] + deltaTimeFrame * k3.vel[j]);
-				}
+				tempState.pos = objects[i].s.pos + deltaTimeFrame * k1.pos;
+				tempState.vel = objects[i].s.vel + deltaTimeFrame * k1.vel;
+
 				State k4{};
 				findDerivativeState(k4, tempState, objects);
 				for (size_t j = 0; j < k1.pos.size(); j++) {

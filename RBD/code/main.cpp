@@ -288,6 +288,7 @@ Object constructObj(std::string model_path, bool dynamic) {
 			obj.s.pos += obj.masses[i] * obj.vertices[i].pos;
 		}
 		obj.s.pos /= obj.vertices.size();
+		printf("Dynamic Object at with mass center (%f, %f, %f)\n", obj.s.pos.x, obj.s.pos.y, obj.s.pos.z);
 	}
 
 	for (int i = 0; i < obj.indices.size() / 3; i++) {
@@ -323,86 +324,8 @@ void findDerivativeState(State& der, State& s, std::vector<Object>& objects) {
 		if (objects[i].dynamic) {
 			// calculate state derivative
 			der.pos = s.vel;
-			glm::vec3 acc = glm::vec3(0.0f, 0.0f, -1.0f);
+			glm::vec3 acc = glm::vec3(0.0f, 0.0f, .0f);
 			der.vel = acc;
-		}
-	}
-}
-
-float hpSign(glm::vec2 p1, glm::vec2 p2, glm::vec2 p3) {
-	return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
-}
-
-void vertexFaceIntersection(std::vector<CollResp1>& resp, Object& obj1, Object& obj2, State change) {
-	for (int i = 0; i < obj1.vertices.size(); i++) {
-		Vertex v = obj1.vertices[i];
-		for (int j = 0; j < obj2.faces.size(); j++) {
-			Face f = obj2.faces[j];
-			glm::vec3 p_prev = obj1.s.pos + obj1.vertices[i].pos;
-			glm::vec3 norm = glm::normalize(glm::cross(obj2.vertices[f.v1].pos - obj2.vertices[f.v2].pos, obj2.vertices[f.v2].pos - obj2.vertices[f.v3].pos));
-			float d = glm::dot(v.pos - obj2.vertices[f.v1].pos, norm);
-			obj1.s.pos[i] += change.pos[i] * deltaTimeFrame;
-			obj1.s.vel[i] += change.vel[i] * deltaTimeFrame;
-			float dn = glm::dot(v.pos - obj2.vertices[f.v1].pos, norm);
-			/*
-			if (signbit(d) != signbit(dn)) {
-				printf("coll level 1\n");
-				//collision may happened need to check projections
-				//for xy
-				glm::vec3 collP = p_prev + change.pos[i] * deltaTimeFrame * (abs(d) / (abs(d) + abs(dn)));
-				obj1.s.pos = collP + norm * 0.01f;
-				glm::vec3 vn = glm::dot(obj1.s.vel[i], norm) * norm;
-
-				glm::vec3 vt = obj1.s.vel[i] - vn;
-				obj1.s.vel[i] = -vn + vt;
-				obj1.vertices[i].pos = obj1.s.pos[i];
-				*/
-				//float e1 = hpSign(glm::vec2(collP.y, collP.z), glm::vec2(obj2.vertices[f.v1].pos.y, obj2.vertices[f.v1].pos.z), glm::vec2(obj2.vertices[f.v2].pos.y, obj2.vertices[f.v2].pos.z));
-				//float e2 = hpSign(glm::vec2(collP.y, collP.z), glm::vec2(obj2.vertices[f.v2].pos.y, obj2.vertices[f.v2].pos.z), glm::vec2(obj2.vertices[f.v3].pos.y, obj2.vertices[f.v3].pos.z));
-				//float e3 = hpSign(glm::vec2(collP.y, collP.z), glm::vec2(obj2.vertices[f.v3].pos.y, obj2.vertices[f.v3].pos.z), glm::vec2(obj2.vertices[f.v1].pos.y, obj2.vertices[f.v1].pos.z));
-				//resp.push_back({ obj1.index, obj2.index, i, f.v1, f.v2, f.v3, norm });
-				//if ((signbit(e1) == signbit(e2) && signbit(e2) == signbit(e3))) {
-					//printf("coll level 2\n");
-					//printf("coll happened\n");
-
-
-				//}
-			//}
-		}
-	}
-	/*
-	glm::vec3 p_prev = pgen1.pgpus[i].p;
-	float d = glm::dot(pgen1.pgpus[i].p - tri[0], norm);
-	pgen1.pgpus[i].p += pgen1.pcpus[i].v * deltaTimeFrame;
-	float dn = glm::dot(pgen1.pgpus[i].p - tri[0], norm);
-	pgen1.pcpus[i].v += g * glm::vec3(0.0, 0.0, -1.0) * deltaTimeFrame;
-	pgen1.pcpus[i].v = (1 - lorenzFac * 0.01f) * pgen1.pcpus[i].v + lorenzFac * 0.01f * velocity;
-	if (signbit(d) != signbit(dn)) {
-		printf("coll level 1\n");
-		//collision may happened need to check projections
-		glm::vec3 collP = p_prev + pgen1.pcpus[i].v * deltaTimeFrame * (abs(d) / (abs(d) + abs(dn)));
-		//for xy
-		float e1 = hpSign(glm::vec2(collP.y, collP.z), glm::vec2(tri[0].y, tri[0].z), glm::vec2(tri[1].y, tri[1].z));
-		float e2 = hpSign(glm::vec2(collP.y, collP.z), glm::vec2(tri[1].y, tri[1].z), glm::vec2(tri[2].y, tri[2].z));
-		float e3 = hpSign(glm::vec2(collP.y, collP.z), glm::vec2(tri[2].y, tri[2].z), glm::vec2(tri[0].y, tri[0].z));
-
-		if (signbit(e1) == signbit(e2) && signbit(e2) == signbit(e3)) {
-			printf("coll level 2\n");
-			printf("coll happened\n");
-			pgen1.pgpus[i].p -= 2.0f * glm::dot(pgen1.pgpus[i].p, norm) * norm;
-			glm::vec3 vn = glm::dot(pgen1.pcpus[i].v, norm) * norm;
-
-			glm::vec3 vt = pgen1.pcpus[i].v - vn;
-			pgen1.pcpus[i].v = -vn + vt;
-		}
-	}
-	*/
-}
-
-void edgeEdgeIntersection(std::vector<CollResp2> resp, Object obj1, Object obj2) {
-	for (Edge e1 : obj1.edges) {
-		for (Edge e2 : obj2.edges) {
-
 		}
 	}
 }
@@ -518,90 +441,25 @@ int main() {
 				
 				State k3{};
 				findDerivativeState(k3, tempState, objects);
-				tempState.pos = objects[i].s.pos + deltaTimeFrame * k1.pos;
-				tempState.vel = objects[i].s.vel + deltaTimeFrame * k1.vel;
+				tempState.pos = objects[i].s.pos + deltaTimeFrame * k3.pos;
+				tempState.vel = objects[i].s.vel + deltaTimeFrame * k3.vel;
 
 				State k4{};
 				findDerivativeState(k4, tempState, objects);
-				for (size_t j = 0; j < k1.pos.size(); j++) {
-					change.pos.push_back(deltaTimeFrame * (k1.pos[j] + 2.0f * k2.pos[j] + 2.0f * k3.pos[j] + k4.pos[j]) / 6.0f);
-					change.vel.push_back(deltaTimeFrame * (k1.vel[j] + 2.0f * k2.vel[j] + 2.0f * k3.vel[j] + k4.vel[j]) / 6.0f);
-					//objects[i].s.pos[j] += deltaTimeFrame * (k1.pos[j] + 2.0f * k2.pos[j] + 2.0f * k3.pos[j] + k4.pos[j]) / 6.0f;
-					//objects[i].s.vel[j] += deltaTimeFrame * (k1.vel[j] + 2.0f * k2.vel[j] + 2.0f * k3.vel[j] + k4.vel[j]) / 6.0f;
-					objects[i].vertices[j].pos = objects[i].s.pos[j];
+				tempState.pos = objects[i].s.pos + deltaTimeFrame * k4.pos;
+				tempState.vel = objects[i].s.vel + deltaTimeFrame * k4.vel;
+				change.pos = deltaTimeFrame * (k1.pos + 2.0f * k2.pos + 2.0f * k3.pos + k4.pos) / 6.0f;
+				change.vel = deltaTimeFrame * (k1.vel + 2.0f * k2.vel + 2.0f * k3.vel + k4.vel) / 6.0f;
+				//printf("Change of object %i p:(%f, %f, %f), v:(%f, %f, %f)\n", i, change.pos.x, change.pos.y, change.pos.z, change.vel.x, change.vel.y, change.vel.z);
+				objects[i].s.pos += change.pos;
+				objects[i].s.vel += change.vel;
+				//printf("Object %i p:(%f, %f, %f), v:(%f, %f, %f)\n", i, objects[i].s.pos.x, objects[i].s.pos.y, objects[i].s.pos.z, objects[i].s.vel.x, objects[i].s.vel.y, objects[i].s.vel.z);
+				for (size_t j = 0; j < objects[i].vertices.size(); j++) {
+					objects[i].vertices[j].pos = objects[i].s.pos + objects[i].vertices[j].pos;
+					printf("Vertices of vertex %i: (%f, %f, %f)\n", j, objects[i].vertices[j].pos.x, objects[i].vertices[j].pos.y, objects[i].vertices[j].pos.z);
 				}
 			}
 		}
-		std::vector<CollResp1> faceVertex;
-		std::vector<CollResp2> edgeEdge;
-		//vertexFaceIntersection(faceVertex, objects[0], objects[1], change);
-		//for (int i = 0; i < objects.size(); i++) {
-			//for (int j = 0; j < objects.size(); j++) {
-				//if (i != j) {
-
-				//}
-				//edgeEdgeIntersection(edgeEdge, objects[i], objects[j]);
-			//}
-		//}
-
-		for (int i = 0; i < objects[0].vertices.size(); i++) {
-			Vertex v = objects[0].vertices[i];
-			for (int j = 0; j < objects[1].faces.size(); j++) {
-				Face f = objects[1].faces[j];
-				glm::vec3 p_prev = objects[0].s.pos[i];
-				glm::vec3 norm = glm::normalize(glm::cross(objects[1].vertices[f.v1].pos - objects[1].vertices[f.v2].pos, objects[1].vertices[f.v2].pos - objects[1].vertices[f.v3].pos));
-				float d = glm::dot(objects[0].s.pos[i] - objects[1].vertices[f.v1].pos, norm);
-				objects[0].s.pos[i] += change.pos[i];
-				objects[0].s.vel[i] += change.vel[i];
-				float dn = glm::dot(objects[0].s.pos[i] - objects[1].vertices[f.v1].pos, norm);
-				if (signbit(d) != signbit(dn)) {
-					//printf("coll level 1\n");
-					//collision may happened need to check projections
-					//for xy
-					glm::vec3 collP = p_prev + change.pos[i] * (abs(d) / (abs(d) + abs(dn)));
-					objects[0].s.pos[i] += norm * 0.1f;
-					glm::vec3 vn = glm::dot(objects[0].s.vel[i], norm) * norm;
-
-					glm::vec3 vt = objects[0].s.vel[i] - vn;
-					objects[0].s.vel[i] = -vn + vt;
-					objects[0].vertices[i].pos = objects[0].s.pos[i];
-				}
-			}
-		}
-		//printf("out of finding intersections\n");
-		//for (CollResp1 const& resp : faceVertex) {
-			//printf("collided objects 1:%i,%i ; 2:%i,%i", resp.obj1, objects[resp.obj1].vertices.size(), resp.obj2, objects[resp.obj2].vertices.size());
-			//if (objects[resp.obj1].dynamic && !objects[resp.obj2].dynamic) {
-				//objects[resp.obj1].vertices[resp.vertex].pos += resp.normal * 0.1f;
-				//objects[resp.obj1].s.pos[resp.vertex] += resp.normal * 0.1f;
-				//pgen1.pgpus[i].p -= 2.0f * glm::dot(pgen1.pgpus[i].p, norm) * norm;
-				//glm::vec3 vn = glm::dot(objects[resp.obj1].s.vel[resp.vertex], resp.normal) * resp.normal;
-
-				//glm::vec3 vt = objects[resp.obj1].s.vel[resp.vertex] - vn;
-				//objects[resp.obj1].s.vel[resp.vertex] = -vn;
-				//printf("velocity after coll: %f, %f, %f\n", objects[resp.obj1].s.vel[resp.vertex].x, objects[resp.obj1].s.vel[resp.vertex].y, objects[resp.obj1].s.vel[resp.vertex].z);
-			//}
-			/*
-			else if (!objects[resp.obj1].dynamic && objects[resp.obj2].dynamic) {
-				objects[resp.obj2].vertices[resp.v1].pos += resp.normal / 3.0f;
-				objects[resp.obj2].vertices[resp.v2].pos += resp.normal / 3.0f;
-				objects[resp.obj2].vertices[resp.v3].pos += resp.normal / 3.0f;
-				objects[resp.obj2].s.pos[resp.v1] += resp.normal / 3.0f;
-				objects[resp.obj2].s.pos[resp.v2] += resp.normal / 3.0f;
-				objects[resp.obj2].s.pos[resp.v3] += resp.normal / 3.0f;
-				//pgen1.pgpus[i].p -= 2.0f * glm::dot(pgen1.pgpus[i].p, norm) * norm;
-				glm::vec3 avVel = (objects[resp.obj2].s.vel[resp.v1] + objects[resp.obj2].s.vel[resp.v2] + objects[resp.obj2].s.vel[resp.v3]) / 3.0f;
-				glm::vec3 vn = glm::dot(avVel, resp.normal) * resp.normal;
-				glm::vec3 vt = avVel - vn;
-				objects[resp.obj2].s.vel[resp.v1] = (-vn + vt) / 3.0f;
-				objects[resp.obj2].s.vel[resp.v2] = (-vn + vt) / 3.0f;
-				objects[resp.obj2].s.vel[resp.v3] = (-vn + vt) / 3.0f;
-				//printf("this is static vs dynamic check\n");
-			}
-			else if (objects[resp.obj1].dynamic && objects[resp.obj2].dynamic) {
-
-			}*/
-			//}
 		ImGui::Begin("Integrator Settings");
 		ImGui::End();
 

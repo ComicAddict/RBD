@@ -61,6 +61,16 @@ struct Vertex {
 	}
 };
 
+struct VertexData {
+	glm::vec3 pos;
+	glm::vec3 normal;
+	glm::vec2 texCoord;
+
+	bool operator==(const Vertex& other) const {
+		return pos == other.pos;
+	}
+};
+
 struct Edge {
 	int v1;
 	int v2;
@@ -101,6 +111,7 @@ struct Object {
 	std::string model_path;
 	unsigned int vao, vbo, ebo;
 	std::vector<Vertex> vertices;
+	std::vector<VertexData> drawData;
 	std::vector<uint32_t> indices;
 	std::vector<Edge> edges;
 	std::vector<Face> faces;
@@ -266,13 +277,16 @@ Object constructObj(std::string model_path, bool dynamic) {
 	obj.dynamic = dynamic;
 	obj.model_path = model_path;
 	loadModel(obj.vertices, obj.indices, obj.model_path);
+	for (int i = 0; i < obj.vertices.size(); i++) {
+		obj.drawData.push_back({ obj.vertices[i].pos ,obj.vertices[i].normal ,obj.vertices[i].texCoord });
+	}
 	glGenVertexArrays(1, &obj.vao);
 	glGenBuffers(1, &obj.vbo);
 	glGenBuffers(1, &obj.ebo);
 
 	glBindVertexArray(obj.vao);
 	glBindBuffer(GL_ARRAY_BUFFER, obj.vbo);
-	glBufferData(GL_ARRAY_BUFFER, obj.vertices.size() * sizeof(Vertex), &obj.vertices[0], GL_DYNAMIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, obj.drawData.size() * sizeof(Vertex), &obj.drawData[0], GL_DYNAMIC_DRAW);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)0);
 	glEnableVertexAttribArray(0);
 	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)(3 * sizeof(float)));
@@ -316,7 +330,7 @@ Object constructObj(std::string model_path, bool dynamic) {
 
 void loadObjBufferData(Object& obj) {
 	glBindBuffer(GL_ARRAY_BUFFER, obj.vbo);
-	glBufferData(GL_ARRAY_BUFFER, obj.vertices.size() * sizeof(Vertex), &obj.vertices[0], GL_DYNAMIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, obj.drawData.size() * sizeof(Vertex), &obj.drawData[0], GL_DYNAMIC_DRAW);
 }
 
 void findDerivativeState(State& der, State& s, std::vector<Object>& objects) {
@@ -392,7 +406,7 @@ int main() {
 	ImGui_ImplGlfw_InitForOpenGL(window, true);
 	ImGui_ImplOpenGL3_Init("#version 330");
 
-
+	float lightPos[3] = {0.0f,0.0f,0.0f};
 
 	while (!glfwWindowShouldClose(window))
 	{
@@ -420,6 +434,8 @@ int main() {
 
 		shader.setMat4("projection", projection);
 		shader.setMat4("model", model);
+		shader.setVec3("lightPos", lightPos[0], lightPos[1], lightPos[2]);
+		glProvokingVertex(GL_FIRST_VERTEX_CONVENTION);
 		for (size_t i = 0; i < objects.size(); i++) {
 			glBindVertexArray(objects[i].vao);
 			loadObjBufferData(objects[i]);
@@ -456,12 +472,16 @@ int main() {
 				objects[i].s.vel += change.vel;
 				//printf("Object %i p:(%f, %f, %f), v:(%f, %f, %f)\n", i, objects[i].s.pos.x, objects[i].s.pos.y, objects[i].s.pos.z, objects[i].s.vel.x, objects[i].s.vel.y, objects[i].s.vel.z);
 				for (size_t j = 0; j < objects[i].vertices.size(); j++) {
-					objects[i].vertices[j].pos = objects[i].s.pos + objects[i].vertices[j].pos;
+					objects[i].drawData[j].pos = objects[i].s.pos + objects[i].vertices[j].pos;
 					//printf("Vertices of vertex %i: (%f, %f, %f)\n", j, objects[i].vertices[j].pos.x, objects[i].vertices[j].pos.y, objects[i].vertices[j].pos.z);
 				}
 			}
 		}
 		ImGui::Begin("Integrator Settings");
+		ImGui::End();
+
+		ImGui::Begin("Render Settings");
+		ImGui::DragFloat3("Light Pos", lightPos, 0.1f);
 		ImGui::End();
 
 		ImGui::Begin("Spring Settings");

@@ -81,4 +81,12 @@
       <Filter>Source Files\imgui</Filter>
     </ClInclude>
   </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\..\..\..\..\Src\shaders\fragRBD.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+    <None Include="..\..\..\..\..\..\Src\shaders\vertRBD.glsl">
+      <Filter>Source Files\shaders</Filter>
+    </None>
+  </ItemGroup>
 </Project>

@@ -366,18 +366,19 @@ int main() {
 
 	//load model
 	std::vector<Object> objects;
-	objects.push_back(constructObj("C:\\Users\\Tolga YILDIZ\\springmeshes\\springmeshes\\mesh\\suzanne.obj", true));
-	objects.push_back(constructObj("C:\\Users\\Tolga YILDIZ\\springmeshes\\springmeshes\\mesh\\plane.obj", false));
+	objects.push_back(constructObj("C:\\Src\\meshes\\cube.obj", true));
+	objects.push_back(constructObj("C:\\Src\\meshes\\plane.obj", false));
+	objects.push_back(constructObj("C:\\Src\\meshes\\suzanne.obj", true));
 	for (int i = 0; i < objects.size(); i++) {
 		objects[i].index = i;
 	}
-	//objects.push_back(constructObj("C:\\Users\\Tolga YILDIZ\\springmeshes\\springmeshes\\mesh\\sphere.obj"));
 
-
+	objects[0].s.pos = glm::vec3(1.0f, 5.0f, 0.0f);
+	objects[2].s.pos = glm::vec3(10.0f, -5.0f, 0.0f);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 	glBindVertexArray(0);
 
-	Shader shader("C:\\Users\\Tolga YILDIZ\\springmeshes\\springmeshes\\shaders\\vert.glsl", "C:\\Users\\Tolga YILDIZ\\springmeshes\\springmeshes\\shaders\\frag.glsl");
+	Shader shader("C:\\Src\\shaders\\vertRBD.glsl", "C:\\Src\\shaders\\fragRBD.glsl");
 	shader.use();
 	int width, height;
 
@@ -456,7 +457,7 @@ int main() {
 				//printf("Object %i p:(%f, %f, %f), v:(%f, %f, %f)\n", i, objects[i].s.pos.x, objects[i].s.pos.y, objects[i].s.pos.z, objects[i].s.vel.x, objects[i].s.vel.y, objects[i].s.vel.z);
 				for (size_t j = 0; j < objects[i].vertices.size(); j++) {
 					objects[i].vertices[j].pos = objects[i].s.pos + objects[i].vertices[j].pos;
-					printf("Vertices of vertex %i: (%f, %f, %f)\n", j, objects[i].vertices[j].pos.x, objects[i].vertices[j].pos.y, objects[i].vertices[j].pos.z);
+					//printf("Vertices of vertex %i: (%f, %f, %f)\n", j, objects[i].vertices[j].pos.x, objects[i].vertices[j].pos.y, objects[i].vertices[j].pos.z);
 				}
 			}
 		}

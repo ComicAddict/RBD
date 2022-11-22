@@ -58,6 +58,7 @@ struct Vertex {
 	glm::vec3 normal;
 	glm::vec2 texCoord;
 
+
 	bool operator==(const Vertex& other) const {
 		return pos == other.pos;
 	}
@@ -369,24 +370,14 @@ void findDerivativeState(State& der, State& s, Object& object) {
 	
 }
 
-glm::vec3 rotateXYZ(glm::vec3& vec, glm::vec3 &rot) {
-	return glm::rotateZ(glm::rotateY(glm::rotateX(vec, rot.x), rot.y), rot.z);
-}
-
-bool vertexFaceIntersection(Vertex &v, Face &f) {
-	return false;
-}
-
 int main() {
-
-
 	glfwInit();
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3); // opengl version 3
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3); //opengil version 3.3
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE); //using core profile of opengl
 	//glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
-	GLFWwindow* window = glfwCreateWindow(1920, 1080, "Spring Meshes", NULL, NULL);
+	GLFWwindow* window = glfwCreateWindow(1920, 1080, "RBD", NULL, NULL);
 	//glfwSetWindowMonitor(window, glfwGetPrimaryMonitor(), 0, 0, 1920, 1080, GLFW_DONT_CARE);
 	if (window == NULL)
 	{
@@ -416,7 +407,7 @@ int main() {
 	bool dynamic = true;
 	objects.push_back(constructObj("C:\\Src\\meshes\\cube.obj", dynamic, 1.0f/6.0f));
 	objects.push_back(constructObj("C:\\Src\\meshes\\cube.obj", dynamic, 1.0f / 6.0f));
-	for (int i = 0; i < 5; i++) {
+	for (int i = 0; i < 2; i++) {
 		objects.push_back(constructObj("C:\\Src\\meshes\\icos1.obj", dynamic, 1.0f / 10.0f));
 		objects.back().s.x = glm::linearRand(glm::vec3(-10.f,-10.f,1.0f), glm::vec3(10.f, 10.f, 5.0f));
 		objects.back().s.P = glm::linearRand(glm::vec3(-3.f, -3.f, 0.0f), glm::vec3(3.f, 3.f, 5.0f));
@@ -425,7 +416,6 @@ int main() {
 		//objects.back().s.w = glm::linearRand(glm::vec3(-20.f, -20.f, -20.0f), glm::vec3(20.f, 20.f, 20.0f));
 	}
 	objects.push_back(constructObj("C:\\Src\\meshes\\plane.obj", false, 1.0f));
-	//objects.push_back(constructObj("C:\\Src\\meshes\\suzanne.obj", true));
 	for (int i = 0; i < objects.size(); i++) {
 		objects[i].index = i;
 	}
@@ -450,7 +440,6 @@ int main() {
 
 	glEnable(GL_DEPTH_TEST);
 
-
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
 	ImGuiIO& io = ImGui::GetIO(); (void)io;
@@ -463,6 +452,7 @@ int main() {
 	static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
 	float lightPos[3] = {40.0f,30.0f,50.0f};
 	float h = 0.01f;
+	bool rk4 = false;
 	while (!glfwWindowShouldClose(window))
 	{
 		// time handling for input, should not interfere with this
@@ -502,51 +492,99 @@ int main() {
 			for (size_t i = 0; i < objects.size(); i++) {
 				if (objects[i].dynamic) {
 					// calculate forces
+
 					State tempState{};
 					State k1{};
-					findDerivativeState(k1, objects[i].s, objects[i]);
-					/*
-					tempState.x = objects[i].s.x + 0.5f * deltaTimeFrame * k1.x;
-					tempState.q = objects[i].s.q + 0.5f * deltaTimeFrame * k1.q;
-					tempState.P = objects[i].s.P + 0.5f * deltaTimeFrame * k1.P;
-					tempState.L = objects[i].s.L + 0.5f * deltaTimeFrame * k1.L;
-					
-					State k2{};
-					findDerivativeState(k2, tempState, objects[i]);
-					tempState.x = objects[i].s.x + 0.5f * deltaTimeFrame * k2.x;
-					tempState.q = objects[i].s.q + 0.5f * deltaTimeFrame * k2.q;
-					tempState.P = objects[i].s.P + 0.5f * deltaTimeFrame * k2.P;
-					tempState.L = objects[i].s.L + 0.5f * deltaTimeFrame * k2.L;
+					if (rk4) {
+						findDerivativeState(k1, objects[i].s, objects[i]);
+						tempState.x = objects[i].s.x + 0.5f * deltaTimeFrame * k1.x;
+						tempState.q = objects[i].s.q + 0.5f * deltaTimeFrame * k1.q;
+						tempState.P = objects[i].s.P + 0.5f * deltaTimeFrame * k1.P;
+						tempState.L = objects[i].s.L + 0.5f * deltaTimeFrame * k1.L;
 
-					State k3{};
-					findDerivativeState(k3, tempState, objects[i]);
-					tempState.x = objects[i].s.x + deltaTimeFrame * k3.x;
-					tempState.q = objects[i].s.q + deltaTimeFrame * k3.q;
-					tempState.P = objects[i].s.P + deltaTimeFrame * k3.P;
-					tempState.L = objects[i].s.L + deltaTimeFrame * k3.L;
+						State k2{};
+						findDerivativeState(k2, tempState, objects[i]);
+						tempState.x = objects[i].s.x + 0.5f * deltaTimeFrame * k2.x;
+						tempState.q = objects[i].s.q + 0.5f * deltaTimeFrame * k2.q;
+						tempState.P = objects[i].s.P + 0.5f * deltaTimeFrame * k2.P;
+						tempState.L = objects[i].s.L + 0.5f * deltaTimeFrame * k2.L;
 
-					State k4{};
-					findDerivativeState(k4, tempState, objects[i]);
-					tempState.x = objects[i].s.x + deltaTimeFrame * k4.x;
-					tempState.q = objects[i].s.q + deltaTimeFrame * k4.q;
-					tempState.P = objects[i].s.P + deltaTimeFrame * k4.P;
-					tempState.L = objects[i].s.L + deltaTimeFrame * k4.L;
+						State k3{};
+						findDerivativeState(k3, tempState, objects[i]);
+						tempState.x = objects[i].s.x + deltaTimeFrame * k3.x;
+						tempState.q = objects[i].s.q + deltaTimeFrame * k3.q;
+						tempState.P = objects[i].s.P + deltaTimeFrame * k3.P;
+						tempState.L = objects[i].s.L + deltaTimeFrame * k3.L;
+
+						State k4{};
+						findDerivativeState(k4, tempState, objects[i]);
+						tempState.x = objects[i].s.x + deltaTimeFrame * k4.x;
+						tempState.q = objects[i].s.q + deltaTimeFrame * k4.q;
+						tempState.P = objects[i].s.P + deltaTimeFrame * k4.P;
+						tempState.L = objects[i].s.L + deltaTimeFrame * k4.L;
+
+						change.x = deltaTimeFrame * (k1.x + 2.0f * k2.x + 2.0f * k3.x + k4.x) / 6.0f;
+						change.q = deltaTimeFrame * (k1.q + 2.0f * k2.q + 2.0f * k3.q + k4.q) / 6.0f;
+						change.P = deltaTimeFrame * (k1.P + 2.0f * k2.P + 2.0f * k3.P + k4.P) / 6.0f;
+						change.L = deltaTimeFrame * (k1.L + 2.0f * k2.L + 2.0f * k3.L + k4.L) / 6.0f;
+						objects[i].impulses.clear();
+						//printf("Change of object %i p:(%f, %f, %f), v:(%f, %f, %f)\n", i, change.pos.x, change.pos.y, change.pos.z, change.vel.x, change.vel.y, change.vel.z);
+						change.x = h * k1.x;
+						change.P = h * k1.P;
+						change.L = h * k1.L;
+						change.q = h * k1.q;
+						objects[i].s.x += change.x;
+						objects[i].s.P += change.P;
+						objects[i].s.L += change.L;
+						objects[i].s.q += change.q;
+						objects[i].s.q = glm::normalize(objects[i].s.q);
+					}
+					else {
+						findDerivativeState(k1, objects[i].s, objects[i]);
+						/*
+						tempState.x = objects[i].s.x + 0.5f * deltaTimeFrame * k1.x;
+						tempState.q = objects[i].s.q + 0.5f * deltaTimeFrame * k1.q;
+						tempState.P = objects[i].s.P + 0.5f * deltaTimeFrame * k1.P;
+						tempState.L = objects[i].s.L + 0.5f * deltaTimeFrame * k1.L;
+
+						State k2{};
+						findDerivativeState(k2, tempState, objects[i]);
+						tempState.x = objects[i].s.x + 0.5f * deltaTimeFrame * k2.x;
+						tempState.q = objects[i].s.q + 0.5f * deltaTimeFrame * k2.q;
+						tempState.P = objects[i].s.P + 0.5f * deltaTimeFrame * k2.P;
+						tempState.L = objects[i].s.L + 0.5f * deltaTimeFrame * k2.L;
+
+						State k3{};
+						findDerivativeState(k3, tempState, objects[i]);
+						tempState.x = objects[i].s.x + deltaTimeFrame * k3.x;
+						tempState.q = objects[i].s.q + deltaTimeFrame * k3.q;
+						tempState.P = objects[i].s.P + deltaTimeFrame * k3.P;
+						tempState.L = objects[i].s.L + deltaTimeFrame * k3.L;
+
+						State k4{};
+						findDerivativeState(k4, tempState, objects[i]);
+						tempState.x = objects[i].s.x + deltaTimeFrame * k4.x;
+						tempState.q = objects[i].s.q + deltaTimeFrame * k4.q;
+						tempState.P = objects[i].s.P + deltaTimeFrame * k4.P;
+						tempState.L = objects[i].s.L + deltaTimeFrame * k4.L;
+
+						change.x = deltaTimeFrame * (k1.x + 2.0f * k2.x + 2.0f * k3.x + k4.x) / 6.0f;
+						change.q = deltaTimeFrame * (k1.q + 2.0f * k2.q + 2.0f * k3.q + k4.q) / 6.0f;
+						change.P = deltaTimeFrame * (k1.P + 2.0f * k2.P + 2.0f * k3.P + k4.P) / 6.0f;
+						change.L = deltaTimeFrame * (k1.L + 2.0f * k2.L + 2.0f * k3.L + k4.L) / 6.0f;*/
+						objects[i].impulses.clear();
+						//printf("Change of object %i p:(%f, %f, %f), v:(%f, %f, %f)\n", i, change.pos.x, change.pos.y, change.pos.z, change.vel.x, change.vel.y, change.vel.z);
+						change.x = h * k1.x;
+						change.P = h * k1.P;
+						change.L = h * k1.L;
+						change.q = h * k1.q;
+						objects[i].s.x += change.x;
+						objects[i].s.P += change.P;
+						objects[i].s.L += change.L;
+						objects[i].s.q += change.q;
+						objects[i].s.q = glm::normalize(objects[i].s.q);
+					}
 					
-					change.x = deltaTimeFrame * (k1.x + 2.0f * k2.x + 2.0f * k3.x + k4.x) / 6.0f;
-					change.q = deltaTimeFrame * (k1.q + 2.0f * k2.q + 2.0f * k3.q + k4.q) / 6.0f;
-					change.P = deltaTimeFrame * (k1.P + 2.0f * k2.P + 2.0f * k3.P + k4.P) / 6.0f;
-					change.L = deltaTimeFrame * (k1.L + 2.0f * k2.L + 2.0f * k3.L + k4.L) / 6.0f;*/
-					objects[i].impulses.clear();
-					//printf("Change of object %i p:(%f, %f, %f), v:(%f, %f, %f)\n", i, change.pos.x, change.pos.y, change.pos.z, change.vel.x, change.vel.y, change.vel.z);
-					change.x = h * k1.x;
-					change.P = h * k1.P;
-					change.L = h * k1.L;
-					change.q = h * k1.q;
-					objects[i].s.x += change.x;
-					objects[i].s.P += change.P;
-					objects[i].s.L += change.L;
-					objects[i].s.q += change.q;
-					objects[i].s.q = glm::normalize(objects[i].s.q);
 					
 				}
 			}
@@ -701,6 +739,7 @@ int main() {
 		ImGui::End();
 
 		ImGui::Begin("Integrator Settings");
+		ImGui::Checkbox("Use RK4", &rk4);
 		ImGui::DragFloat("Time Step", &h, 0.001);
 		ImGui::End();
 

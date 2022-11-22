@@ -9,6 +9,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtx/rotate_vector.hpp>
+#include <glm/gtx/quaternion.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/hash.hpp>
 #include <glm/gtc/random.hpp>
@@ -96,15 +97,16 @@ struct CollResp2 {
 };
 
 struct State {
-	glm::vec3 pos;
-	glm::vec3 vel;
-	glm::vec3 rot;
-	glm::vec3 w;
+	glm::vec3 x;
+	glm::vec3 P;
+	glm::quat q;
+	glm::vec3 L;
 };
 
 struct Impulse {
 	glm::vec3 pos;
 	glm::vec3 dir;
+	std::vector<glm::vec3> points;
 };
 
 struct Object {
@@ -120,7 +122,9 @@ struct Object {
 	std::vector<Face> faces;
 	std::vector<Impulse> impulses;
 	std::vector<float> masses;
+	float m;
 	bool dynamic;
+	glm::mat3x3 I;
 };
 
 namespace std {
@@ -275,7 +279,7 @@ void processInput(GLFWwindow* window)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
-Object constructObj(std::string model_path, bool dynamic) {
+Object constructObj(std::string model_path, bool dynamic, float i) {
 	Object obj{};
 	obj.dynamic = dynamic;
 	obj.model_path = model_path;
@@ -297,19 +301,20 @@ Object constructObj(std::string model_path, bool dynamic) {
 
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, obj.ebo);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, obj.indices.size() * sizeof(float), &obj.indices[0], GL_DYNAMIC_DRAW);
-	obj.s.pos = glm::vec3(0.0f, 0.0f, 0.0f);
-	obj.s.vel = glm::vec3(0.0f, 0.0f, 0.0f);
-	obj.s.rot = glm::vec3(0.0f, 0.0f, 0.0f);
-	obj.s.w = glm::vec3(0.0f, 0.0f, 0.0f);
+	obj.s.x = glm::vec3(0.0f, 0.0f, 0.0f);
+	obj.s.P = glm::vec3(0.0f, 0.0f, 0.0f);
+	obj.s.L = glm::vec3(0.0f, 0.0f, 0.0f);
+	obj.s.q = glm::quat(0.0f, 0.0f, 0.0f, 0.0f);
+	obj.m = 0.0f;
 	//if (dynamic) {
-		obj.s.pos = glm::vec3(0.0f, 0.0f, 0.0f);
-		obj.s.vel = glm::vec3(0.0f, 0.0f, 0.0f);
-		obj.s.rot = glm::vec3(0.0f, 0.0f, 0.0f);
-		for (int i = 0; i < obj.vertices.size(); i++) {
-			obj.masses.push_back(1.0f);
-			obj.s.pos += obj.masses.back() * obj.vertices[i].pos;
-		}
-		obj.s.pos /= obj.vertices.size();
+	for (int i = 0; i < obj.vertices.size(); i++) {
+		obj.masses.push_back(1.0f);
+		obj.m += obj.masses.back();
+		obj.s.x += obj.masses.back() * obj.vertices[i].pos;
+	}
+	obj.s.x /= obj.vertices.size();
+	obj.m /= obj.vertices.size();
+	obj.I = glm::mat3x3(1.0f) * i;
 		//printf("Dynamic Object at with mass center (%f, %f, %f)\n", obj.s.pos.x, obj.s.pos.y, obj.s.pos.z);
 	//}
 
@@ -341,16 +346,27 @@ void loadObjBufferData(Object& obj) {
 	glBufferData(GL_ARRAY_BUFFER, obj.drawData.size() * sizeof(Vertex), &obj.drawData[0], GL_DYNAMIC_DRAW);
 }
 
-void findDerivativeState(State& der, State& s, std::vector<Object>& objects) {
-	for (size_t i = 0; i < objects.size(); i++) {
-		if (objects[i].dynamic) {
-			// calculate state derivative
-			der.pos = s.vel;
-			glm::vec3 acc = glm::vec3(0.0f, 0.0f, -1.0f);
-			der.vel = acc;
-			der.rot = s.w;
+void findDerivativeState(State& der, State& s, Object& object) {
+	if (object.dynamic) {
+		// calculate state derivative
+		der.x = s.P/object.m;
+		glm::mat3x3 R = glm::toMat4(glm::quat(s.q));
+		glm::mat3x3 i = R * glm::inverse(object.I) * glm::transpose(R);
+		glm::vec3 w = i * s.L;
+		glm::quat wq = glm::quat(0,w);
+		der.q = wq * s.q / 2.0f;
+		der.P = glm::vec3(0.0f);
+		der.L = glm::vec3(0.0f);
+		der.P += glm::vec3(0.0f, 0.0f, -2.0f);
+		for (int i = 0; i < object.impulses.size(); i++) {
+			der.P += object.impulses[i].dir/5.0f;
+			for (int j = 0; j < object.impulses[i].points.size(); j++) {
+				glm::vec3 r = object.impulses[i].points[j] - s.x;
+				der.L += glm::cross(r, object.impulses[i].dir)/ static_cast<float>(object.impulses[i].points.size());
+			}
 		}
 	}
+	
 }
 
 glm::vec3 rotateXYZ(glm::vec3& vec, glm::vec3 &rot) {
@@ -398,24 +414,27 @@ int main() {
 	//load model
 	std::vector<Object> objects;
 	bool dynamic = true;
-	objects.push_back(constructObj("C:\\Src\\meshes\\cube.obj", dynamic));
-	objects.push_back(constructObj("C:\\Src\\meshes\\cube.obj", dynamic));
-	for (int i = 0; i < 10; i++) {
-		objects.push_back(constructObj("C:\\Src\\meshes\\icos1.obj", dynamic));
-		objects.back().s.pos = glm::linearRand(glm::vec3(-10.f,-10.f,1.0f), glm::vec3(10.f, 10.f, 5.0f));
-		objects.back().s.w = glm::linearRand(glm::vec3(-20.f, -20.f, -20.0f), glm::vec3(20.f, 20.f, 20.0f));
+	objects.push_back(constructObj("C:\\Src\\meshes\\cube.obj", dynamic, 1.0f/6.0f));
+	objects.push_back(constructObj("C:\\Src\\meshes\\cube.obj", dynamic, 1.0f / 6.0f));
+	for (int i = 0; i < 5; i++) {
+		objects.push_back(constructObj("C:\\Src\\meshes\\icos1.obj", dynamic, 1.0f / 10.0f));
+		objects.back().s.x = glm::linearRand(glm::vec3(-10.f,-10.f,1.0f), glm::vec3(10.f, 10.f, 5.0f));
+		objects.back().s.P = glm::linearRand(glm::vec3(-3.f, -3.f, 0.0f), glm::vec3(3.f, 3.f, 5.0f));
+		objects.back().s.q = glm::quat(glm::linearRand(glm::vec4(0.f, 0.f, 0.0f, 0.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)));
+		objects.back().s.L = glm::linearRand(glm::vec3(-1.0f, -1.0f, -1.0f), glm::vec3(1.0f, 1.0f, 1.0f));
+		//objects.back().s.w = glm::linearRand(glm::vec3(-20.f, -20.f, -20.0f), glm::vec3(20.f, 20.f, 20.0f));
 	}
-	objects.push_back(constructObj("C:\\Src\\meshes\\plane.obj", false));
+	objects.push_back(constructObj("C:\\Src\\meshes\\plane.obj", false, 1.0f));
 	//objects.push_back(constructObj("C:\\Src\\meshes\\suzanne.obj", true));
 	for (int i = 0; i < objects.size(); i++) {
 		objects[i].index = i;
 	}
 	printf("Constructed objects\n");
-	objects[0].s.pos = glm::vec3(1.0f, 5.0f, 0.0f);
-	objects[0].s.w = glm::vec3(10.0f, 5.0f, 0.0f);
-	objects[0].s.rot = glm::vec3(45.0f, 0.0f, -15.0f);
-	objects[1].s.pos = glm::vec3(1.0f, 5.0f, 5.0f);
-	objects[1].s.rot = glm::vec3(15.0f, 45.0f, 0.0f);
+	objects[0].s.x = glm::vec3(1.0f, 5.0f, 0.0f);
+	objects[0].s.L = glm::vec3(0.10f, .20f, 0.0f);
+	objects[0].s.q = glm::quat(.0f, 0.10f, 0.2f, 0.1f);
+	objects[1].s.x = glm::vec3(1.0f, 5.0f, 5.0f);
+	objects[1].s.q = glm::quat(.1f, 0.45f, 0.01f, 0.5f);
 	
 	for (int i = 0; i < objects.size(); i++) {
 		objects[i].ps = objects[i].s;
@@ -442,7 +461,7 @@ int main() {
 
 	ImGuiViewport* viewport = ImGui::GetMainViewport();
 	static ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
-	float lightPos[3] = {0.0f,0.0f,0.0f};
+	float lightPos[3] = {40.0f,30.0f,50.0f};
 	float h = 0.01f;
 	while (!glfwWindowShouldClose(window))
 	{
@@ -485,62 +504,70 @@ int main() {
 					// calculate forces
 					State tempState{};
 					State k1{};
-					findDerivativeState(k1, objects[i].s, objects);
-					tempState.pos = objects[i].s.pos + 0.5f * deltaTimeFrame * k1.pos;
-					tempState.vel = objects[i].s.vel + 0.5f * deltaTimeFrame * k1.vel;
+					findDerivativeState(k1, objects[i].s, objects[i]);
 					/*
+					tempState.x = objects[i].s.x + 0.5f * deltaTimeFrame * k1.x;
+					tempState.q = objects[i].s.q + 0.5f * deltaTimeFrame * k1.q;
+					tempState.P = objects[i].s.P + 0.5f * deltaTimeFrame * k1.P;
+					tempState.L = objects[i].s.L + 0.5f * deltaTimeFrame * k1.L;
+					
 					State k2{};
-					findDerivativeState(k2, tempState, objects);
-					tempState.pos = objects[i].s.pos + 0.5f * deltaTimeFrame * k2.pos;
-					tempState.vel = objects[i].s.vel + 0.5f * deltaTimeFrame * k2.vel;
+					findDerivativeState(k2, tempState, objects[i]);
+					tempState.x = objects[i].s.x + 0.5f * deltaTimeFrame * k2.x;
+					tempState.q = objects[i].s.q + 0.5f * deltaTimeFrame * k2.q;
+					tempState.P = objects[i].s.P + 0.5f * deltaTimeFrame * k2.P;
+					tempState.L = objects[i].s.L + 0.5f * deltaTimeFrame * k2.L;
 
 					State k3{};
-					findDerivativeState(k3, tempState, objects);
-					tempState.pos = objects[i].s.pos + deltaTimeFrame * k3.pos;
-					tempState.vel = objects[i].s.vel + deltaTimeFrame * k3.vel;
+					findDerivativeState(k3, tempState, objects[i]);
+					tempState.x = objects[i].s.x + deltaTimeFrame * k3.x;
+					tempState.q = objects[i].s.q + deltaTimeFrame * k3.q;
+					tempState.P = objects[i].s.P + deltaTimeFrame * k3.P;
+					tempState.L = objects[i].s.L + deltaTimeFrame * k3.L;
 
 					State k4{};
-					findDerivativeState(k4, tempState, objects);
-					tempState.pos = objects[i].s.pos + deltaTimeFrame * k4.pos;
-					tempState.vel = objects[i].s.vel + deltaTimeFrame * k4.vel;
-					*/
-					//change.pos = deltaTimeFrame * (k1.pos + 2.0f * k2.pos + 2.0f * k3.pos + k4.pos) / 6.0f;
-					//change.vel = deltaTimeFrame * (k1.vel + 2.0f * k2.vel + 2.0f * k3.vel + k4.vel) / 6.0f;
+					findDerivativeState(k4, tempState, objects[i]);
+					tempState.x = objects[i].s.x + deltaTimeFrame * k4.x;
+					tempState.q = objects[i].s.q + deltaTimeFrame * k4.q;
+					tempState.P = objects[i].s.P + deltaTimeFrame * k4.P;
+					tempState.L = objects[i].s.L + deltaTimeFrame * k4.L;
+					
+					change.x = deltaTimeFrame * (k1.x + 2.0f * k2.x + 2.0f * k3.x + k4.x) / 6.0f;
+					change.q = deltaTimeFrame * (k1.q + 2.0f * k2.q + 2.0f * k3.q + k4.q) / 6.0f;
+					change.P = deltaTimeFrame * (k1.P + 2.0f * k2.P + 2.0f * k3.P + k4.P) / 6.0f;
+					change.L = deltaTimeFrame * (k1.L + 2.0f * k2.L + 2.0f * k3.L + k4.L) / 6.0f;*/
+					objects[i].impulses.clear();
 					//printf("Change of object %i p:(%f, %f, %f), v:(%f, %f, %f)\n", i, change.pos.x, change.pos.y, change.pos.z, change.vel.x, change.vel.y, change.vel.z);
-					change.pos = h * k1.pos;
-					change.vel = h * k1.vel;
-					change.rot = h * k1.rot;
-					change.w = h * k1.w;
-					objects[i].s.pos += change.pos;
-					objects[i].s.vel += change.vel;
-					objects[i].s.rot += change.rot;
-					objects[i].s.w += change.w;
-					//printf("Object %i p:(%f, %f, %f), v:(%f, %f, %f)\n", i, objects[i].s.pos.x, objects[i].s.pos.y, objects[i].s.pos.z, objects[i].s.vel.x, objects[i].s.vel.y, objects[i].s.vel.z);
-					for (size_t j = 0; j < objects[i].vertices.size(); j++) {
-						//objects[i].drawData[j].pos = objects[i].s.pos + objects[i].vertices[j].pos;
-						//printf("Vertices of vertex %i: (%f, %f, %f)\n", j, objects[i].vertices[j].pos.x, objects[i].vertices[j].pos.y, objects[i].vertices[j].pos.z);
-					}
+					change.x = h * k1.x;
+					change.P = h * k1.P;
+					change.L = h * k1.L;
+					change.q = h * k1.q;
+					objects[i].s.x += change.x;
+					objects[i].s.P += change.P;
+					objects[i].s.L += change.L;
+					objects[i].s.q += change.q;
+					objects[i].s.q = glm::normalize(objects[i].s.q);
+					
 				}
 			}
 			// find the collisions
 			for (size_t i = 0; i < objects.size(); i++) {
 				for (size_t j = i + 1; j < objects.size(); j++) {
-
 					// vertex face
 					for (Face f : objects[j].faces) {
 						//printf("before norm\n");
-						glm::vec3 norm = rotateXYZ(objects[j].vertices[f.v1].normal, objects[j].s.rot);
+						glm::vec3 norm = glm::toMat3(objects[j].s.q) * objects[j].vertices[f.v1].normal;
 						//printf("after norm\n");
-						glm::vec3 v1 = objects[j].s.pos + rotateXYZ(objects[j].vertices[f.v1].pos, objects[j].s.rot);
-						glm::vec3 v2 = objects[j].s.pos + rotateXYZ(objects[j].vertices[f.v2].pos, objects[j].s.rot);
-						glm::vec3 v3 = objects[j].s.pos + rotateXYZ(objects[j].vertices[f.v3].pos, objects[j].s.rot);
+						glm::vec3 v1 = objects[j].s.x + glm::toMat3(objects[j].s.q) * objects[j].vertices[f.v1].pos;
+						glm::vec3 v2 = objects[j].s.x + glm::toMat3(objects[j].s.q) * objects[j].vertices[f.v2].pos;
+						glm::vec3 v3 = objects[j].s.x + glm::toMat3(objects[j].s.q) * objects[j].vertices[f.v3].pos;
 						//printf("after faces\n");
 
 						glm::vec3 v1_prev = objects[j].drawData[f.v1].pos;
 						glm::vec3 v2_prev = objects[j].drawData[f.v2].pos;
 						glm::vec3 v3_prev = objects[j].drawData[f.v3].pos;
 						for (size_t k = 0; k < objects[i].vertices.size(); k++) {
-							glm::vec3 v = objects[i].s.pos + rotateXYZ(objects[i].vertices[k].pos, objects[i].s.rot);
+							glm::vec3 v = objects[i].s.x + glm::toMat3(objects[i].s.q) * objects[i].vertices[k].pos;
 							glm::vec3 v_prev = objects[i].drawData[k].pos;
 							float side1 = glm::dot(v - v1, norm);
 							float side2 = glm::dot(v_prev - v1_prev, norm);
@@ -554,8 +581,14 @@ int main() {
 									if (signbit(s1) == signbit(s2) && signbit(s2) == signbit(s3)) {
 										//inside the polygon, mark intersection
 										glm::vec3 p = v + glm::dot(v - v1, norm) * norm;
-										objects[i].impulses.push_back({ p, norm });
-										objects[j].impulses.push_back({ p, norm });
+										std::vector<glm::vec3> points;
+										points.push_back(v);
+										objects[i].impulses.push_back({ p, norm, points });
+										points.clear();
+										points.push_back(v1);
+										points.push_back(v2);
+										points.push_back(v3);
+										objects[j].impulses.push_back({ p, norm, points });
 									}
 								}
 								else if (norm.y > norm.z && norm.y > norm.x) {
@@ -565,8 +598,14 @@ int main() {
 									float s3 = (v1.x - v3.x) * (v.z - v3.z) - (v1.z - v3.z) * (v.x - v3.x);
 									if (signbit(s1) == signbit(s2) && signbit(s2) == signbit(s3)) {
 										glm::vec3 p = v+glm::dot(v - v1, norm)*norm;
-										objects[i].impulses.push_back({p, norm});
-										objects[j].impulses.push_back({ p, norm });
+										std::vector<glm::vec3> points;
+										points.push_back(v);
+										objects[i].impulses.push_back({ p, norm, points });
+										points.clear();
+										points.push_back(v1);
+										points.push_back(v2);
+										points.push_back(v3);
+										objects[j].impulses.push_back({ p, norm, points });
 									}
 								}
 								else {
@@ -576,8 +615,14 @@ int main() {
 									float s3 = (v1.x - v3.x) * (v.y - v3.y) - (v1.y - v3.y) * (v.x - v3.x);
 									if (signbit(s1) == signbit(s2) && signbit(s2) == signbit(s3)) {
 										glm::vec3 p = v + glm::dot(v - v1, norm) * norm;
-										objects[i].impulses.push_back({ p, norm });
-										objects[j].impulses.push_back({ p, norm });
+										std::vector<glm::vec3> points;
+										points.push_back(v);
+										objects[i].impulses.push_back({ p, norm, points});
+										points.clear();
+										points.push_back(v1);
+										points.push_back(v2);
+										points.push_back(v3);
+										objects[j].impulses.push_back({ p, norm, points});
 									}
 								}
 							}
@@ -619,6 +664,18 @@ int main() {
 			
 			//handle the collision
 			for (size_t i = 0; i < objects.size(); i++) {
+				for (int j = 0; j < objects[i].impulses.size(); j++) {
+					for (int k = 0; k < objects[i].impulses[j].points.size(); k++) {
+						//printf("This amount of points in this impulse: %i, %i, %i\n", i, j, k);
+						glm::vec3 ra = objects[i].s.x - objects[i].impulses[j].points[k];
+						glm::vec3 vm = (objects[i].s.P / objects[i].m) + glm::cross(glm::inverse(objects[i].I) * objects[i].s.P, ra);
+						float vmf = glm::dot(vm, objects[i].impulses[j].dir);
+						float a = -1.0f * vmf / (1.0f / objects[i].m + glm::dot(objects[i].impulses[j].dir, glm::cross(glm::inverse(objects[i].I) * glm::cross(ra, objects[i].impulses[j].dir), ra)));
+						objects[i].s.P += a * objects[i].impulses[j].dir/ static_cast<float>(objects[i].impulses[j].points.size());
+						objects[i].s.L += a * (glm::cross(ra, objects[i].impulses[j].dir)) / static_cast<float>(objects[i].impulses[j].points.size());
+					}
+					objects[i].impulses[j].points.clear();
+				}
 				objects[i].ps = objects[i].s;
 			}
 			
@@ -627,8 +684,8 @@ int main() {
 		//update the positions
 		for (size_t i = 0; i < objects.size(); i++) {
 			for (size_t j = 0; j < objects[i].vertices.size(); j++) {
-				objects[i].drawData[j].pos = objects[i].s.pos + glm::rotateZ(glm::rotateY(glm::rotateX(objects[i].vertices[j].pos, objects[i].s.rot.x), objects[i].s.rot.y), objects[i].s.rot.z);
-				objects[i].drawData[j].normal = rotateXYZ(objects[i].vertices[j].normal, objects[i].s.rot);
+				objects[i].drawData[j].pos = objects[i].s.x + glm::toMat3(objects[i].s.q) * objects[i].vertices[j].pos;
+				objects[i].drawData[j].normal = glm::toMat3(objects[i].s.q) * objects[i].vertices[j].normal; 
 				//printf("Vertices of vertex %i: (%f, %f, %f)\n", j, objects[i].vertices[j].pos.x, objects[i].vertices[j].pos.y, objects[i].vertices[j].pos.z);
 			}
 		}
